@@ -1,0 +1,50 @@
+{
+  "id": "001",
+  "name": "Bit, el robot",
+  "fps": 2,
+  "palette": {
+    "K": "#1b1b2f",
+    "B": "#4cc9f0",
+    "L": "#b9f1ff",
+    "W": "#ffffff",
+    "R": "#ff4d6d"
+  },
+  "frames": [
+    [
+      ".......RR.......",
+      ".......KK.......",
+      "..KKKKKKKKKKKK..",
+      "..KBBBBBBBBBBK..",
+      "..KBLLBBBBBBBK..",
+      "..KBWKBBBBWKBK..",
+      "..KBWKBBBBWKBK..",
+      "..KBBBBBBBBBBK..",
+      "..KBBKKKKKKBBK..",
+      "..KKKKKKKKKKKK..",
+      "....KBBBBBBK....",
+      "...KBBLLBBBBK...",
+      "..KBBBBBBBBBBK..",
+      "..KBBKBBBBKBBK..",
+      "....KKK..KKK....",
+      "...KKKK..KKKK..."
+    ],
+    [
+      ".......RR.......",
+      ".......KK.......",
+      "..KKKKKKKKKKKK..",
+      "..KBBBBBBBBBBK..",
+      "..KBLLBBBBBBBK..",
+      "..KBBBBBBBBBBK..",
+      "..KBKKBBBBKKBK..",
+      "..KBBBBBBBBBBK..",
+      "..KBBKKKKKKBBK..",
+      "..KKKKKKKKKKKK..",
+      "....KBBBBBBK....",
+      "...KBBLLBBBBK...",
+      "..KBBBBBBBBBBK..",
+      "..KBBKBBBBKBBK..",
+      "...KKK....KKK...",
+      "...KKKK..KKKK..."
+    ]
+  ]
+}
