@@ -20,6 +20,8 @@ export interface Character {
 }
 
 export const ID_PATTERN = /^[a-z0-9-]+$/i;
+const MAX_SIZE = 64; // px por lado de un fotograma
+const MAX_FRAMES = 12;
 
 export async function readCharacter(id: string): Promise<Character> {
   if (!ID_PATTERN.test(id)) throw new Error(`Id no válido: ${id}`);
@@ -40,6 +42,7 @@ export function validateCharacter(c: Character, expectedId: string): string[] {
   const errors: string[] = [];
   if (c.id !== expectedId) errors.push(`id "${c.id}" no coincide con el archivo "${expectedId}.json"`);
   if (!ID_PATTERN.test(c.id)) errors.push('id solo admite letras, números y guiones');
+  if (c.id.toLowerCase() === 'index') errors.push('el id "index" está reservado');
   if (!c.name?.trim()) errors.push('falta "name"');
   if (!(c.fps > 0 && c.fps <= 30)) errors.push('"fps" debe estar entre 1 y 30');
 
@@ -55,6 +58,11 @@ export function validateCharacter(c: Character, expectedId: string): string[] {
   }
   const width = c.frames[0]?.[0]?.length ?? 0;
   const height = c.frames[0]?.length ?? 0;
+  if (width < 1 || height < 1 || width > MAX_SIZE || height > MAX_SIZE) {
+    errors.push(`el tamaño del sprite debe estar entre 1 y ${MAX_SIZE} px (es ${width}×${height})`);
+  }
+  if (c.frames.length > MAX_FRAMES) errors.push(`"frames" admite como máximo ${MAX_FRAMES} fotogramas`);
+  if ((c.back?.length ?? 0) > MAX_FRAMES) errors.push(`"back" admite como máximo ${MAX_FRAMES} fotogramas`);
   const views: [string, string[][]][] = [['frames', c.frames]];
   if (c.back !== undefined) {
     if (!Array.isArray(c.back) || c.back.length === 0) errors.push('"back" debe tener al menos un fotograma');

@@ -21,6 +21,9 @@ export const ANCHOR = {
   y: ORIGIN_Y + TILE_H / 2 + ((GRID - 1) * TILE_H) / 2,
 };
 
+/** Opacidad de la plataforma (0–1): translúcida para que parezca virtual y deje ver el QR. */
+export const FLOOR_ALPHA = 0.55;
+
 const COLORS = {
   floorA: '#3b3558',
   floorB: '#4a4370',
@@ -102,6 +105,12 @@ export class IsoScene {
     this.canvas.width = SCENE_W;
     this.canvas.height = SCENE_H;
     this.ctx = this.canvas.getContext('2d');
+    // La plataforma se pinta opaca aquí y se compone con transparencia de una sola vez,
+    // así no se ven costuras entre baldosas.
+    this.floor = document.createElement('canvas');
+    this.floor.width = SCENE_W;
+    this.floor.height = SCENE_H;
+    this.floorCtx = this.floor.getContext('2d');
     this.walker = new Walker();
     this.sprites = null;
   }
@@ -117,13 +126,16 @@ export class IsoScene {
   render() {
     const { ctx } = this;
     ctx.clearRect(0, 0, SCENE_W, SCENE_H);
-    this.drawFloor();
+    this.floorCtx.clearRect(0, 0, SCENE_W, SCENE_H);
+    this.drawFloor(this.floorCtx);
+    ctx.globalAlpha = FLOOR_ALPHA;
+    ctx.drawImage(this.floor, 0, 0);
+    ctx.globalAlpha = 1;
     if (this.sprites) this.drawWalker();
     return this.canvas;
   }
 
-  drawFloor() {
-    const { ctx } = this;
+  drawFloor(ctx) {
     // Laterales de la plataforma (solo las baldosas del borde que se ven de frente).
     for (let gx = 0; gx < GRID; gx++) {
       for (let gy = 0; gy < GRID; gy++) {

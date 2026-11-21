@@ -1,6 +1,6 @@
 import { buildSprites } from './sprite.js';
 import { IsoScene, SCENE_W, SCENE_H, ANCHOR } from './iso.js';
-import { createDetector, startTracking } from './qr-tracker.js';
+import { createDetector, createMotionEstimator, startTracking } from './qr-tracker.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('camera');
@@ -12,7 +12,7 @@ const hint = $('hint');
 const statusEl = $('status');
 
 const ID_PATTERN = /^[a-z0-9-]+$/i;
-const LOST_AFTER_MS = 1200; // sin ver el QR durante este tiempo se considera perdido
+const VISIBLE_MS = 500; // sin leer el QR durante este tiempo se considera fuera de plano
 const PLATFORM_TO_QR = 2.5; // la plataforma mide 2,5 veces el QR en pantalla
 const PLATFORM_ART_PX = 64; // ancho de la plataforma en píxeles de arte
 
@@ -26,9 +26,11 @@ const state = {
   cx: window.innerWidth / 2,
   cy: window.innerHeight * 0.6,
   unit: defaultUnit(),
-  // Último QR visto, ya convertido a px CSS.
+  // Último QR visto, ya convertido a px CSS. Se desplaza con la cámara mientras no se ve.
   target: null,
   lastSeen: -Infinity,
+  hasAnchor: false, // ya se leyó un QR: el personaje está clavado al mundo hasta "Centrar" o "Salir"
+  pending: { x: 0, y: 0 }, // movimiento de cámara medido y aún sin aplicar (px CSS)
   stream: null,
   stopTracking: null,
   running: false,
@@ -40,7 +42,7 @@ function defaultUnit() {
   return Math.min((window.innerWidth * 0.7) / PLATFORM_ART_PX, 8);
 }
 
-const anchored = () => performance.now() - state.lastSeen < LOST_AFTER_MS;
+const qrVisible = () => performance.now() - state.lastSeen < VISIBLE_MS;
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 function setStatus(msg, isError = false) {
@@ -102,29 +104,41 @@ function characterIdFromQr(text) {
 
 // ---- Seguimiento del QR ----
 // El vídeo se muestra con object-fit: cover; hay que convertir sus coordenadas a las de pantalla.
+const coverScale = () => Math.max(window.innerWidth / video.videoWidth, window.innerHeight / video.videoHeight);
+
 function videoToScreen(p) {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const s = Math.max(window.innerWidth / vw, window.innerHeight / vh);
-  return { x: p.x * s + (window.innerWidth - vw * s) / 2, y: p.y * s + (window.innerHeight - vh * s) / 2 };
+  const s = coverScale();
+  return {
+    x: p.x * s + (window.innerWidth - video.videoWidth * s) / 2,
+    y: p.y * s + (window.innerHeight - video.videoHeight * s) / 2,
+  };
 }
 
-function onCodes(codes) {
+function onSample(codes, motion) {
   for (const code of codes) {
     const id = characterIdFromQr(code.text);
     if (!id || code.corners.length < 4) continue;
     const c = code.corners.map(videoToScreen);
     const side = (Math.hypot(c[1].x - c[0].x, c[1].y - c[0].y) + Math.hypot(c[3].x - c[0].x, c[3].y - c[0].y)) / 2;
-    const first = !anchored();
+    const first = !state.hasAnchor;
     state.target = {
       x: c.reduce((sum, p) => sum + p.x, 0) / c.length,
       y: c.reduce((sum, p) => sum + p.y, 0) / c.length,
       unit: clamp((side * PLATFORM_TO_QR) / PLATFORM_ART_PX, 1.5, 40),
     };
     state.lastSeen = performance.now();
+    state.hasAnchor = true;
+    state.pending = { x: 0, y: 0 }; // la lectura del QR manda sobre el movimiento estimado
     if (first) Object.assign(state, { cx: state.target.x, cy: state.target.y, unit: state.target.unit });
     showCharacter(id);
     return;
+  }
+
+  // QR fuera de plano: el personaje sigue el movimiento de la imagen, como clavado donde estaba el QR.
+  if (state.hasAnchor && motion) {
+    const s = coverScale();
+    state.pending.x += motion.dx * s;
+    state.pending.y += motion.dy * s;
   }
 }
 
@@ -134,7 +148,19 @@ function frame(now) {
   const dt = Math.min(0.1, (now - state.lastFrame) / 1000 || 0);
   state.lastFrame = now;
 
-  if (anchored() && state.target) {
+  // Aplica poco a poco el movimiento de cámara medido (también al último QR conocido).
+  if (state.hasAnchor && state.target) {
+    const mx = state.pending.x * 0.4;
+    const my = state.pending.y * 0.4;
+    state.pending.x -= mx;
+    state.pending.y -= my;
+    state.cx += mx;
+    state.cy += my;
+    state.target.x += mx;
+    state.target.y += my;
+  }
+
+  if (qrVisible() && state.target) {
     // Suavizado para que el personaje siga al QR sin temblar.
     const k = 0.35;
     state.cx += (state.target.x - state.cx) * k;
@@ -158,14 +184,15 @@ function frame(now) {
     );
   }
 
-  if (anchored()) setHint('Anclado al QR · muévete con calma');
+  if (qrVisible()) setHint('Anclado al QR · muévete con calma');
+  else if (state.hasAnchor) setHint('QR fuera de vista · el personaje sigue anclado, vuelve a enfocarlo');
   else if (state.id) setHint('Apunta al QR de la camiseta para anclarlo · arrastra para mover');
   else setHint('Apunta al QR de tu camiseta');
 
   requestAnimationFrame(frame);
 }
 
-// ---- Gestos (solo cuando no hay QR anclado): arrastrar y pellizcar ----
+// ---- Gestos (solo antes de anclar a un QR): arrastrar y pellizcar ----
 const pointers = new Map();
 let pinchStart = null;
 const pinchDist = () => {
@@ -174,14 +201,14 @@ const pinchDist = () => {
 };
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (anchored()) return;
+  if (state.hasAnchor) return;
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) pinchStart = { dist: pinchDist(), unit: state.unit };
 });
 canvas.addEventListener('pointermove', (e) => {
   const p = pointers.get(e.pointerId);
-  if (!p || anchored()) return;
+  if (!p || state.hasAnchor) return;
   if (pointers.size === 1) {
     state.cx = clamp(state.cx + (e.clientX - p.x), 0, window.innerWidth);
     state.cy = clamp(state.cy + (e.clientY - p.y), 0, window.innerHeight);
@@ -201,7 +228,7 @@ canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener(
   'wheel',
   (e) => {
-    if (!anchored()) state.unit = clamp(state.unit * (e.deltaY < 0 ? 1.1 : 0.9), 1.5, 40);
+    if (!state.hasAnchor) state.unit = clamp(state.unit * (e.deltaY < 0 ? 1.1 : 0.9), 1.5, 40);
   },
   { passive: true },
 );
@@ -234,11 +261,18 @@ function show() {
   requestAnimationFrame(frame);
 }
 
+function releaseAnchor() {
+  state.hasAnchor = false;
+  state.target = null;
+  state.lastSeen = -Infinity;
+  state.pending = { x: 0, y: 0 };
+}
+
 function exit() {
   state.running = false;
   state.stopTracking?.();
   state.stopTracking = null;
-  state.lastSeen = -Infinity;
+  releaseAnchor();
   stopCamera();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   controls.hidden = true;
@@ -340,13 +374,13 @@ $('start').addEventListener('click', async () => {
 
   if (cameraOk) {
     const detect = await createDetector();
-    if (detect) state.stopTracking = startTracking(video, detect, onCodes);
+    if (detect) state.stopTracking = startTracking(video, detect, onSample, createMotionEstimator());
     else setHint('Este navegador no puede leer QR');
   }
 });
 $('shot').addEventListener('click', takePhoto);
 $('reset').addEventListener('click', () => {
-  state.lastSeen = -Infinity;
+  releaseAnchor();
   Object.assign(state, { cx: window.innerWidth / 2, cy: window.innerHeight * 0.6, unit: defaultUnit() });
 });
 $('stop').addEventListener('click', exit);

@@ -21,13 +21,16 @@ A) Escáner dentro de la página                B) Cámara del móvil
 
 1. El QR contiene una URL como `https://xbrain081.github.io/Proyecto_camisetas/?c=001`. El parámetro `c` es el id del personaje.
 2. La página lee el QR del vídeo (`js/qr-tracker.js`), carga `docs/characters/<id>.json` y muestra la escena isométrica (`js/iso.js`) centrada en el QR y con su tamaño.
-3. Al mover el móvil, la plataforma sigue al QR (con suavizado). Si se pierde de vista más de ~1 s, el personaje queda donde estaba y se puede arrastrar/pellizcar hasta que se vuelva a ver el QR.
-4. El personaje camina por la plataforma de baldosa en baldosa y gira: de frente al ir hacia abajo, de espaldas al ir hacia arriba, y la vista se espeja a izquierda/derecha.
+3. Al mover el móvil, la plataforma sigue al QR (con suavizado).
+4. **Si el QR sale de plano**, el personaje sigue anclado a su sitio en el mundo: la página mide cuánto se mueve la imagen de la cámara y mueve la plataforma igual (`createMotionEstimator` en `js/qr-tracker.js`). Al volver a enfocar el QR, la plataforma se recoloca sobre él. Hasta pulsar **Centrar** o **Salir** queda anclado; antes de leer el primer QR se puede arrastrar y pellizcar.
+5. El personaje camina por la plataforma de baldosa en baldosa y gira: de frente al ir hacia abajo, de espaldas al ir hacia arriba, y la vista se espeja a izquierda/derecha.
+6. La plataforma es **translúcida** (`FLOOR_ALPHA` en `js/iso.js`) para que parezca virtual y deje ver el QR de debajo.
 
 ### Alcance actual
 
 - El anclaje usa **posición y tamaño** del QR. **No** sigue la rotación ni la perspectiva: la vista isométrica siempre se ve derecha, como en Habbo.
 - La plataforma tapa visualmente al QR, pero la cámara lo sigue viendo, así que el seguimiento continúa.
+- Fuera de plano el movimiento se **estima** a partir de la imagen: sirve para giros y desplazamientos de cámara moderados, pero acumula error (deriva) y falla si la escena no tiene textura (pared lisa) o hay mucho movimiento. Al ver el QR otra vez se corrige solo.
 - Detección: `BarcodeDetector` nativo si el navegador lo trae (Chrome en Android) y, si no, la librería **jsQR** (Safari en iPhone y otros).
 
 ## Estructura
@@ -38,20 +41,24 @@ docs/                    ← lo que publica GitHub Pages (frontend)
   css/styles.css
   js/app.js              ← cámara, anclaje, gestos, foto
   js/iso.js              ← plataforma isométrica y personaje que pasea
-  js/qr-tracker.js       ← lectura del QR en el vídeo
+  js/qr-tracker.js       ← lectura del QR y estimación del movimiento de la cámara
   js/sprite.js           ← convierte el JSON del personaje en sprites
   js/vendor/jsQR.js      ← lector de QR (Apache-2.0, ver jsQR.LICENSE)
   characters/
     index.json           ← lista pública de personajes
     001.json             ← un archivo por personaje
 server/                  ← backend y herramientas (Node + TypeScript)
+  admin/                 ← panel local para subir personajes (no se publica)
   src/characters.ts      ← lectura y validación de personajes
-  src/server.ts          ← servidor local + API
+  src/store.ts           ← guarda un personaje y actualiza el índice
+  src/publish.ts         ← git add + commit + push de docs/characters
+  src/qr-image.ts        ← URL y PNG del QR de cada personaje
+  src/server.ts          ← servidor local + API + panel
   src/validate.ts        ← comprueba que todos los personajes son válidos
-  src/qr.ts              ← genera un QR (PNG) por personaje
+  src/qr.ts              ← genera todos los QR en server/qr-out/
 ```
 
-GitHub Pages solo sirve archivos estáticos: **el prototipo publicado no necesita el backend**. El servidor Node sirve para desarrollar en local, validar el arte y generar los QR.
+GitHub Pages solo sirve archivos estáticos: **el prototipo publicado no necesita el backend**. El servidor Node sirve para desarrollar en local, subir personajes con el panel, validar el arte y generar los QR.
 
 ## Requisitos técnicos
 
@@ -73,7 +80,7 @@ npm install
 npm run dev
 ```
 
-Abre http://localhost:3000. La cámara funciona en `localhost`; para probar desde el móvil usa la versión publicada en Pages (necesita HTTPS).
+Abre http://localhost:3000. La cámara funciona en `localhost`; para probar desde el móvil usa la versión publicada en Pages (necesita HTTPS). El servidor solo atiende a tu ordenador (`127.0.0.1`).
 
 ### Probar el flujo completo
 
@@ -82,7 +89,24 @@ Abre http://localhost:3000. La cámara funciona en `localhost`; para probar desd
 3. Mueve el móvil: la plataforma debe seguir al QR.
 4. Alternativa: escanea el QR con la cámara normal del móvil; se abrirá la página y, tras activar la cámara, enfoca el QR para anclarlo.
 
-### Añadir un personaje nuevo
+### Subir un personaje nuevo (panel)
+
+Con el servidor en marcha (`npm run dev` dentro de `server/`), abre **http://localhost:3000/admin/**:
+
+1. **Sube tu arte** en PNG con fondo transparente. Un PNG por vista, con los fotogramas en una **tira horizontal** y cada uno cuadrado (el ancho es múltiplo del alto; 16×16 recomendado, máximo 64×64):
+   - *De frente*: 2 fotogramas (los dos pasos al caminar).
+   - *De espaldas*: opcional, otros 2.
+   - Máximo 62 colores. El panel convierte el PNG a texto automáticamente y muestra una vista previa animada.
+2. Escribe un **identificador** (por ejemplo `002`) y un **nombre**, y pulsa **Guardar personaje**. Se guarda en `docs/characters/` y se actualiza el índice. Aparece su **QR para descargar**.
+3. Pulsa **Publicar en GitHub Pages**: sube los cambios a GitHub (equivale a `git add`, `commit` y `push` de `docs/characters`). En 1–2 minutos, al escanear el QR se ve el personaje.
+
+Si guardas con un identificador que ya existe, te pide confirmación y lo reemplaza: todas las camisetas con ese QR mostrarán el arte nuevo.
+
+Seguridad: el panel solo responde a páginas servidas por el propio servidor local, y solo puede publicar cambios dentro de `docs/characters`. Necesita Git instalado y con sesión iniciada en GitHub (el `push` usa tus credenciales).
+
+### Añadir un personaje a mano
+
+Alternativa al panel:
 
 1. Copia `docs/characters/001.json` a `docs/characters/002.json`.
 2. Cambia `id`, `name`, la `palette` y los fotogramas:
@@ -123,15 +147,21 @@ Abre http://localhost:3000. La cámara funciona en `localhost`; para probar desd
 
 ## Limitaciones conocidas
 
-- Probado en un navegador de escritorio con una cámara simulada y el lector jsQR. **Falta probarlo con cámara real en móvil**, y con el QR impreso en tela.
+- El anclaje, el seguimiento fuera de plano y el panel se probaron en un navegador de escritorio con una cámara simulada y el lector jsQR. **Falta probar el seguimiento fuera de plano con cámara real en móvil**, y con el QR impreso en tela.
 - El seguimiento ignora la rotación y la perspectiva del QR (ver Alcance actual).
 - Con poca luz, reflejos o el QR muy lejano o arrugado, la lectura puede fallar o entrecortarse.
 - El anclaje a superficies reales (WebXR) **no funciona en Safari de iOS**; en iPhone requeriría AR Quick Look con archivos `.usdz`.
+
+## Cómo se ha probado
+
+- **Cámara simulada** en el navegador de escritorio: se sustituye `getUserMedia` por un `canvas.captureStream()` que dibuja un QR sobre un fondo con textura (bloques de colores al azar). La textura es necesaria para probar el seguimiento fuera de plano, que mide el movimiento de la imagen; esos bloques son solo del montaje de prueba y **no forman parte de la web**.
+- Comprobado así: lectura del QR con jsQR, anclaje, QR fuera de plano y reenfoque, plataforma translúcida, y el panel de personajes (guardar, QR, publicar sin cambios).
+- Pendiente: pruebas con cámara real en iPhone y Android, y con el QR impreso en tela.
 
 ## Hoja de ruta
 
 1. Probar con cámara real en iPhone y Android y ajustar tamaños, suavizado y tiempos.
 2. Pasar a las camisetas: imprimir el QR en tela y ajustar el tamaño del QR, la plataforma y el contraste.
 3. Más animaciones (saludar, sentarse) y las 8 direcciones de Habbo.
-4. Seguimiento con rotación y perspectiva (homografía con las 4 esquinas del QR).
+4. Seguimiento con rotación y perspectiva (homografía con las 4 esquinas del QR), y movimiento fuera de plano más preciso con el giroscopio del móvil.
 5. Opcional: contador de escaneos o personajes desbloqueables (requiere backend con base de datos).
