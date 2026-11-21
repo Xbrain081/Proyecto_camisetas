@@ -12,7 +12,8 @@ await mkdir(OUT_DIR, { recursive: true });
 for (const id of await listCharacterIds()) {
   const url = `${BASE_URL}?c=${encodeURIComponent(id)}`;
   const file = path.join(OUT_DIR, `qr-${id}.png`);
-  // Corrección de errores alta (H): el QR sigue leyéndose aunque la tela se desgaste un poco.
-  await QRCode.toFile(file, url, { errorCorrectionLevel: 'H', margin: 4, scale: 16 });
+  // Corrección "M": menos módulos que con "H", así cada cuadradito es más grande en la tela
+  // y la cámara lo lee desde más lejos (importante para seguirlo en vivo).
+  await QRCode.toFile(file, url, { errorCorrectionLevel: 'M', margin: 4, scale: 16 });
   console.log(`${id} → ${url}\n    ${file}`);
 }

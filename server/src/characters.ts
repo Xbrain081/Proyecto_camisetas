@@ -13,7 +13,10 @@ export interface Character {
   name: string;
   fps: number;
   palette: Record<string, string>;
+  /** Vista de frente (mira hacia la cámara). */
   frames: string[][];
+  /** Vista de espaldas (opcional; si falta se reutiliza "frames"). */
+  back?: string[][];
 }
 
 export const ID_PATTERN = /^[a-z0-9-]+$/i;
@@ -52,14 +55,22 @@ export function validateCharacter(c: Character, expectedId: string): string[] {
   }
   const width = c.frames[0]?.[0]?.length ?? 0;
   const height = c.frames[0]?.length ?? 0;
-  c.frames.forEach((rows, i) => {
-    if (rows.length !== height) errors.push(`fotograma ${i}: tiene ${rows.length} filas, se esperaban ${height}`);
-    rows.forEach((row, y) => {
-      if (row.length !== width) errors.push(`fotograma ${i}, fila ${y}: ${row.length} columnas, se esperaban ${width}`);
-      for (const ch of row) {
-        if (ch !== '.' && !(ch in palette)) errors.push(`fotograma ${i}, fila ${y}: "${ch}" no está en la paleta`);
-      }
+  const views: [string, string[][]][] = [['frames', c.frames]];
+  if (c.back !== undefined) {
+    if (!Array.isArray(c.back) || c.back.length === 0) errors.push('"back" debe tener al menos un fotograma');
+    else views.push(['back', c.back]);
+  }
+  for (const [view, frames] of views) {
+    frames.forEach((rows, i) => {
+      const where = `${view}[${i}]`;
+      if (rows.length !== height) errors.push(`${where}: tiene ${rows.length} filas, se esperaban ${height}`);
+      rows.forEach((row, y) => {
+        if (row.length !== width) errors.push(`${where}, fila ${y}: ${row.length} columnas, se esperaban ${width}`);
+        for (const ch of row) {
+          if (ch !== '.' && !(ch in palette)) errors.push(`${where}, fila ${y}: "${ch}" no está en la paleta`);
+        }
+      });
     });
-  });
+  }
   return errors;
 }
